@@ -127,8 +127,16 @@ async function getD1(): Promise<AppDatabase | null> {
 }
 
 export async function getDb(): Promise<AppDatabase> {
-  const d1 = await getD1();
-  if (d1) return d1;
+  // `next dev` with OpenNext's Cloudflare bindings points at an empty local D1.
+  // Prefer the existing data/routes.db unless USE_D1_LOCAL=1.
+  const preferLocalSqlite =
+    process.env.USE_D1_LOCAL !== "1" &&
+    process.env.NODE_ENV !== "production";
+
+  if (!preferLocalSqlite) {
+    const d1 = await getD1();
+    if (d1) return d1;
+  }
   return getLocalSqlite();
 }
 

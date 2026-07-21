@@ -53,6 +53,8 @@ Without `MAPBOX_ACCESS_TOKEN`, routes still ingest but drive times stay empty (d
 
 Local `npm run dev` / `npm run ingest` still use `data/routes.db` via better-sqlite3. On Cloudflare, the app uses the **D1** binding `DB`.
 
+To force local D1 during `next dev` (instead of SQLite), set `USE_D1_LOCAL=1` and run `npm run d1:migrate:local`.
+
 1. Create the database (once):
    ```bash
    npx wrangler d1 create trailbound

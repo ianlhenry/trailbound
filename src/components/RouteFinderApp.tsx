@@ -166,6 +166,7 @@ export function RouteFinderApp() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ScoredRoute[] | null>(null);
+  const [routesLoaded, setRoutesLoaded] = useState<number | null>(null);
 
   useEffect(() => {
     const saved = loadSavedCriteria();
@@ -180,6 +181,24 @@ export function RouteFinderApp() {
       setPermitPreference(saved.permitPreference);
     }
     setCriteriaReady(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/recommend");
+        const data = (await res.json()) as { routesLoaded?: number };
+        if (!cancelled && typeof data.routesLoaded === "number") {
+          setRoutesLoaded(data.routesLoaded);
+        }
+      } catch {
+        if (!cancelled) setRoutesLoaded(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -249,6 +268,13 @@ export function RouteFinderApp() {
         <p className="hero__lede">
           Rank backpacking routes by weather window, mileage, drive from
           Seattle, permits, and recent WTA trip reports.
+        </p>
+        <p className="hero__db muted">
+          {routesLoaded == null
+            ? "Checking route database…"
+            : routesLoaded === 0
+              ? "No routes in the database yet — run ingest / D1 import."
+              : `Searching ${routesLoaded} overnight route${routesLoaded === 1 ? "" : "s"}`}
         </p>
       </header>
 
