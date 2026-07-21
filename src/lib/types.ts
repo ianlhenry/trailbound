@@ -84,6 +84,8 @@ export interface WeatherWindow {
   nwsAvailable: boolean;
   windyAvailable: boolean;
   note: string;
+  /** True when even the clearest stretch is riskier than the user's tolerance. */
+  toleranceExceeded: boolean;
 }
 
 export interface ScoredRoute {

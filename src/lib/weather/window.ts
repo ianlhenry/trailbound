@@ -146,6 +146,7 @@ export async function pickBestWeatherWindow(
       note:
         note ||
         "Requested window is outside the available forecast horizon (~7 days).",
+      toleranceExceeded: true,
     };
   }
 
@@ -190,6 +191,7 @@ export async function pickBestWeatherWindow(
       note:
         note ||
         `Not enough forecast days (${days.length}) for a ${tripDays}-day trip.`,
+      toleranceExceeded: true,
     };
   }
 
@@ -212,18 +214,14 @@ export async function pickBestWeatherWindow(
       nwsAvailable,
       windyAvailable,
       note,
+      toleranceExceeded: false,
     };
     if (!best || candidate.avgRisk < best.avgRisk) best = candidate;
   }
 
   const window = best!;
   if (window.avgRisk > threshold) {
-    window.note = [
-      window.note,
-      `Best window still exceeds "${tolerance}" weather tolerance.`,
-    ]
-      .filter(Boolean)
-      .join(" ");
+    window.toleranceExceeded = true;
   }
   return window;
 }

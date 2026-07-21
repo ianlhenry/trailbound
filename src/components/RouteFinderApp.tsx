@@ -568,6 +568,12 @@ export function RouteFinderApp() {
                         );
                       })}
                     </ul>
+                    {item.weatherWindow.toleranceExceeded ? (
+                      <p className="weather-warning" role="status">
+                        Warning: even the clearest stretch still exceeds your “
+                        {weatherTolerance}” weather tolerance.
+                      </p>
+                    ) : null}
                     {item.weatherWindow.note ? (
                       <p className="muted">{item.weatherWindow.note}</p>
                     ) : null}
