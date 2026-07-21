@@ -12,6 +12,7 @@
     "d1:migrate:local": "wrangler d1 migrations apply trailbound --local",
     "d1:migrate:remote": "wrangler d1 migrations apply trailbound --remote",
     "d1:import:remote": "npm run export:d1 && wrangler d1 execute trailbound --remote --file=data/d1-import.sql",
+    "cf:build": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"

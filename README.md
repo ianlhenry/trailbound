@@ -70,6 +70,23 @@ Local `npm run dev` / `npm run ingest` still use `data/routes.db` via better-sql
 
 `wrangler.jsonc` also sets the Worker name and `WORKER_SELF_REFERENCE` to `trailbound` (must match the Cloudflare Worker name).
 
+### Cloudflare build settings
+
+Wrangler expects `.open-next/` from OpenNext — **not** a plain `next build`. In Workers → your project → **Settings → Build**:
+
+| Setting | Value |
+| --- | --- |
+| **Build command** | `npm run cf:build` |
+| **Deploy command** | `npx wrangler deploy` |
+
+Or deploy from your machine:
+
+```bash
+npm run deploy
+```
+
+If you see `Could not find compiled Open Next config`, the build step was skipped or still running `next build` / `npm run build`.
+
 ## Run the app
 
 ```bash
