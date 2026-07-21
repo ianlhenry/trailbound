@@ -6,8 +6,12 @@ import type {
   ScoredRoute,
   WeatherTolerance,
 } from "@/lib/types";
+import { relevantTripReportExcerpt } from "@/lib/wta/excerpts";
 
 const CRITERIA_STORAGE_KEY = "trailbound:criteria";
+
+const RESULT_LIMITS = [10, 20, 30, 40, 50] as const;
+type ResultLimit = (typeof RESULT_LIMITS)[number];
 
 type SavedCriteria = {
   dateStart: string;
@@ -18,7 +22,12 @@ type SavedCriteria = {
   weatherTolerance: WeatherTolerance;
   maxDriveHours: number;
   permitPreference: PermitPreference;
+  resultLimit: ResultLimit;
 };
+
+function isResultLimit(v: unknown): v is ResultLimit {
+  return RESULT_LIMITS.includes(v as ResultLimit);
+}
 
 function defaultDates() {
   const start = new Date();
@@ -53,7 +62,10 @@ function loadSavedCriteria(): SavedCriteria | null {
     ) {
       return null;
     }
-    return parsed as SavedCriteria;
+    const resultLimit = isResultLimit(parsed.resultLimit)
+      ? parsed.resultLimit
+      : 10;
+    return { ...(parsed as SavedCriteria), resultLimit };
   } catch {
     return null;
   }
@@ -162,6 +174,7 @@ export function RouteFinderApp() {
   const [maxDriveHours, setMaxDriveHours] = useState(4);
   const [permitPreference, setPermitPreference] =
     useState<PermitPreference>("any");
+  const [resultLimit, setResultLimit] = useState<ResultLimit>(10);
   const [criteriaReady, setCriteriaReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +192,7 @@ export function RouteFinderApp() {
       setWeatherTolerance(saved.weatherTolerance);
       setMaxDriveHours(saved.maxDriveHours);
       setPermitPreference(saved.permitPreference);
+      setResultLimit(saved.resultLimit);
     }
     setCriteriaReady(true);
   }, []);
@@ -212,6 +226,7 @@ export function RouteFinderApp() {
       weatherTolerance,
       maxDriveHours,
       permitPreference,
+      resultLimit,
     };
     try {
       localStorage.setItem(CRITERIA_STORAGE_KEY, JSON.stringify(payload));
@@ -228,6 +243,7 @@ export function RouteFinderApp() {
     weatherTolerance,
     maxDriveHours,
     permitPreference,
+    resultLimit,
   ]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -344,7 +360,7 @@ export function RouteFinderApp() {
             </label>
           </div>
 
-          <div className="criteria__row criteria__row--3">
+          <div className="criteria__row criteria__row--4">
             <label className="field">
               <FieldLabel tip="How much bad weather you’ll accept. The best NWS+Windy window inside your dates is scored against this; lower tolerance prefers clearer days.">
                 Weather tolerance
@@ -389,6 +405,23 @@ export function RouteFinderApp() {
                 required
               />
             </label>
+            <label className="field field--center">
+              <FieldLabel tip="How many top-ranked routes to show after scoring.">
+                Show top
+              </FieldLabel>
+              <select
+                value={resultLimit}
+                onChange={(e) =>
+                  setResultLimit(Number(e.target.value) as ResultLimit)
+                }
+              >
+                {RESULT_LIMITS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
@@ -402,7 +435,8 @@ export function RouteFinderApp() {
       {results && (
         <section className="results" aria-live="polite">
           <h2 className="results__heading">
-            {results.length} route{results.length === 1 ? "" : "s"}, best first
+            {Math.min(results.length, resultLimit)} of {results.length} route
+            {results.length === 1 ? "" : "s"}, best first
           </h2>
           {results.length === 0 && (
             <p className="muted">
@@ -411,7 +445,7 @@ export function RouteFinderApp() {
             </p>
           )}
           <ol className="result-list">
-            {results.map((item, index) => (
+            {results.slice(0, resultLimit).map((item, index) => (
               <li key={item.route.id} className="result">
                 <div className="result__top">
                   <div>
@@ -486,35 +520,53 @@ export function RouteFinderApp() {
                   <div className="detail-block">
                     <h4>Best weather window</h4>
                     <ul>
-                      {item.weatherWindow.days.map((d) => (
-                        <li key={d.date}>
-                          {d.date} — {d.headline}
-                          {d.nwsLine ? (
-                            <p className="weather-day__source">
-                              <a
-                                href="https://www.weather.gov/"
-                                target="_blank"
-                                rel="noreferrer"
+                      {item.weatherWindow.days.map((d) => {
+                        const detail = [
+                          d.nwsLine ? `NWS: ${d.nwsLine}` : null,
+                          d.windyLine ? `Windy: ${d.windyLine}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ");
+                        const nwsUrl = `https://forecast.weather.gov/MapClick.php?lat=${item.route.latitude}&lon=${item.route.longitude}`;
+                        const windyUrl = `https://www.windy.com/${item.route.latitude.toFixed(3)}/${item.route.longitude.toFixed(3)}`;
+                        return (
+                          <li key={d.date}>
+                            {d.date} —{" "}
+                            <span title={detail || undefined}>
+                              {d.headline}
+                            </span>
+                            {(d.nwsLine || d.windyLine) && (
+                              <span
+                                className="weather-day__sources"
+                                title={detail || undefined}
                               >
-                                NWS
-                              </a>
-                              {` — ${d.nwsLine}`}
-                            </p>
-                          ) : null}
-                          {d.windyLine ? (
-                            <p className="weather-day__source">
-                              <a
-                                href="https://www.windy.com/"
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Windy
-                              </a>
-                              {` — ${d.windyLine}`}
-                            </p>
-                          ) : null}
-                        </li>
-                      ))}
+                                {" "}
+                                (
+                                {d.nwsLine ? (
+                                  <a
+                                    href={nwsUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    NWS
+                                  </a>
+                                ) : null}
+                                {d.nwsLine && d.windyLine ? " · " : null}
+                                {d.windyLine ? (
+                                  <a
+                                    href={windyUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    Windy
+                                  </a>
+                                ) : null}
+                                )
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                     {item.weatherWindow.note ? (
                       <p className="muted">{item.weatherWindow.note}</p>
@@ -534,8 +586,7 @@ export function RouteFinderApp() {
                           {r.issues ? ` — ${r.issues}` : ""}
                           {r.snippet ? (
                             <p className="detail-block__snippet">
-                              {r.snippet.slice(0, 180)}
-                              {r.snippet.length > 180 ? "…" : ""}
+                              {relevantTripReportExcerpt(r.snippet)}
                             </p>
                           ) : null}
                         </li>
