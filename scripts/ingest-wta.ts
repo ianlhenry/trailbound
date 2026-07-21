@@ -120,15 +120,15 @@ async function ingestOne(hit: SearchHit): Promise<boolean> {
     return false;
   }
 
-  upsertRoute(route);
+  await upsertRoute(route);
 
   try {
     const reports = await fetchTripReportsForRoute(route);
-    replaceTripReports(route.id, reports);
+    await replaceTripReports(route.id, reports);
     console.log(`  saved with ${reports.length} recent trip reports`);
   } catch (err) {
     console.warn(`  trip reports failed:`, (err as Error).message);
-    replaceTripReports(route.id, []);
+    await replaceTripReports(route.id, []);
   }
 
   if (process.env.MAPBOX_ACCESS_TOKEN) {
@@ -138,7 +138,7 @@ async function ingestOne(hit: SearchHit): Promise<boolean> {
         route.longitude
       );
       if (drive) {
-        updateRouteDrive(route.id, drive.minutes, drive.miles);
+        await updateRouteDrive(route.id, drive.minutes, drive.miles);
         console.log(`  drive from Seattle: ${(drive.minutes / 60).toFixed(1)}h`);
       }
     } catch (err) {
@@ -152,7 +152,7 @@ async function ingestOne(hit: SearchHit): Promise<boolean> {
 
 async function main() {
   console.log(`Starting WTA ingest (target ${TARGET} overnight routes)...`);
-  const existing = new Set(listRoutes().map((r) => r.wtaUrl));
+  const existing = new Set((await listRoutes()).map((r) => r.wtaUrl));
   let saved = existing.size;
   console.log(`Already in DB: ${saved}`);
 
@@ -201,7 +201,7 @@ async function main() {
 
   // Backfill Mapbox drive times for routes that were ingested before the token existed.
   if (process.env.MAPBOX_ACCESS_TOKEN) {
-    const needingDrive = listRoutes().filter(
+    const needingDrive = (await listRoutes()).filter(
       (r) => r.driveMinutesFromSeattle == null
     );
     if (needingDrive.length) {
@@ -216,7 +216,7 @@ async function main() {
             route.longitude
           );
           if (drive) {
-            updateRouteDrive(route.id, drive.minutes, drive.miles);
+            await updateRouteDrive(route.id, drive.minutes, drive.miles);
             filled++;
             console.log(
               `  ${route.name}: ${(drive.minutes / 60).toFixed(1)}h`
@@ -236,7 +236,7 @@ async function main() {
     console.log("MAPBOX_ACCESS_TOKEN not set; skipping drive-time backfill.");
   }
 
-  console.log(`Done. Routes in DB: ${routeCount()}`);
+  console.log(`Done. Routes in DB: ${await routeCount()}`);
 }
 
 main().catch((err) => {

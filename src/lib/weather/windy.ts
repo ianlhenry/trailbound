@@ -38,7 +38,7 @@ export async function fetchWindyDailyForecast(
   }
 
   const cacheKey = `windy:${lat.toFixed(3)},${lon.toFixed(3)}:${startDate}:${endDate}`;
-  const cached = getWeatherCache<WindyDaily[]>(cacheKey);
+  const cached = await getWeatherCache<WindyDaily[]>(cacheKey);
   if (cached) return cached;
 
   const body = {
@@ -138,6 +138,6 @@ export async function fetchWindyDailyForecast(
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  setWeatherCache(cacheKey, result);
+  await setWeatherCache(cacheKey, result);
   return result;
 }

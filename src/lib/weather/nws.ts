@@ -93,7 +93,7 @@ export async function fetchNwsDailyForecast(
   endDate: string
 ): Promise<NwsDaily[]> {
   const cacheKey = `nws:${lat.toFixed(3)},${lon.toFixed(3)}:${startDate}:${endDate}`;
-  const cached = getWeatherCache<NwsDaily[]>(cacheKey);
+  const cached = await getWeatherCache<NwsDaily[]>(cacheKey);
   if (cached) return cached;
 
   const points = await fetchJson<PointsResponse>(
@@ -174,6 +174,6 @@ export async function fetchNwsDailyForecast(
   const result = [...byDate.values()].sort((a, b) =>
     a.date.localeCompare(b.date)
   );
-  setWeatherCache(cacheKey, result);
+  await setWeatherCache(cacheKey, result);
   return result;
 }

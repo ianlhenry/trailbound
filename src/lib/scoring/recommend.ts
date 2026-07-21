@@ -178,7 +178,7 @@ function combineScore(parts: Omit<ScoreBreakdown, "total">): ScoreBreakdown {
 export async function recommendRoutes(
   criteria: RecommendCriteria
 ): Promise<ScoredRoute[]> {
-  const routes = listRoutes();
+  const routes = await listRoutes();
   const since = new Date();
   since.setUTCDate(since.getUTCDate() - 30);
   const sinceDate = since.toISOString().slice(0, 10);
@@ -195,7 +195,10 @@ export async function recommendRoutes(
     const batch = candidates.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(async (route) => {
-        const reports = getTripReportsForRoute(route.id, sinceDate).slice(0, 5);
+        const reports = (await getTripReportsForRoute(route.id, sinceDate)).slice(
+          0,
+          5
+        );
         const reportEval = tripReportScore(reports);
 
         let weatherWindow = null;

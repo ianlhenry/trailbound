@@ -22,7 +22,7 @@ function isPermit(v: unknown): v is PermitPreference {
 
 export async function POST(request: Request) {
   try {
-    if (routeCount() === 0) {
+    if ((await routeCount()) === 0) {
       return NextResponse.json(
         {
           error:
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
 
 export async function GET() {
   return NextResponse.json({
-    routesLoaded: routeCount(),
+    routesLoaded: await routeCount(),
     ok: true,
   });
 }

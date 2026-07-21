@@ -6,26 +6,20 @@ interface CacheRow {
   expires_at: string;
 }
 
-export function ensureWeatherCache(): void {
-  getDb().exec(`
-    CREATE TABLE IF NOT EXISTS weather_cache (
-      cache_key TEXT PRIMARY KEY,
-      payload TEXT NOT NULL,
-      expires_at TEXT NOT NULL
-    );
-  `);
-}
-
-export function getWeatherCache<T>(key: string): T | null {
-  ensureWeatherCache();
-  const row = getDb()
+export async function getWeatherCache<T>(key: string): Promise<T | null> {
+  const db = await getDb();
+  const row = await db
     .prepare(
       `SELECT cache_key, payload, expires_at FROM weather_cache WHERE cache_key = ?`
     )
-    .get(key) as CacheRow | undefined;
+    .bind(key)
+    .first<CacheRow>();
   if (!row) return null;
   if (row.expires_at < new Date().toISOString()) {
-    getDb().prepare(`DELETE FROM weather_cache WHERE cache_key = ?`).run(key);
+    await db
+      .prepare(`DELETE FROM weather_cache WHERE cache_key = ?`)
+      .bind(key)
+      .run();
     return null;
   }
   try {
@@ -35,15 +29,15 @@ export function getWeatherCache<T>(key: string): T | null {
   }
 }
 
-export function setWeatherCache(
+export async function setWeatherCache(
   key: string,
   payload: unknown,
   ttlHours = 3
-): void {
-  ensureWeatherCache();
+): Promise<void> {
+  const db = await getDb();
   const expires = new Date();
   expires.setUTCHours(expires.getUTCHours() + ttlHours);
-  getDb()
+  await db
     .prepare(
       `INSERT INTO weather_cache (cache_key, payload, expires_at)
        VALUES (?, ?, ?)
@@ -51,5 +45,6 @@ export function setWeatherCache(
          payload = excluded.payload,
          expires_at = excluded.expires_at`
     )
-    .run(key, JSON.stringify(payload), expires.toISOString());
+    .bind(key, JSON.stringify(payload), expires.toISOString())
+    .run();
 }

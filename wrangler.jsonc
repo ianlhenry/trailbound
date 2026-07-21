@@ -1,0 +1,27 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "trailbound",
+	"main": ".open-next/worker.js",
+	"compatibility_date": "2025-03-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "trailbound"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "trailbound",
+			"database_id": "6b1d8194-cb54-4797-ae6d-da071dbc2e5a",
+			"migrations_dir": "migrations"
+		}
+	]
+}

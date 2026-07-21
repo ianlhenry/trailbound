@@ -49,6 +49,27 @@ This is rate-limited (~2–3s between WTA requests) and can take a while for 50 
 
 Without `MAPBOX_ACCESS_TOKEN`, routes still ingest but drive times stay empty (drive soft-score is neutral; hard drive filter only applies when times exist).
 
+## Cloudflare D1 (production)
+
+Local `npm run dev` / `npm run ingest` still use `data/routes.db` via better-sqlite3. On Cloudflare, the app uses the **D1** binding `DB`.
+
+1. Create the database (once):
+   ```bash
+   npx wrangler d1 create trailbound
+   ```
+2. Paste the returned `database_id` into `wrangler.jsonc` (`d1_databases[0].database_id`).
+3. Apply schema:
+   ```bash
+   npm run d1:migrate:remote
+   ```
+4. Export local data and import into D1:
+   ```bash
+   npm run d1:import:remote
+   ```
+5. Redeploy. Set secrets (`WINDY_API_KEY`, `MAPBOX_ACCESS_TOKEN`, `NWS_USER_AGENT`) in the Cloudflare dashboard.
+
+`wrangler.jsonc` also sets the Worker name and `WORKER_SELF_REFERENCE` to `trailbound` (must match the Cloudflare Worker name).
+
 ## Run the app
 
 ```bash

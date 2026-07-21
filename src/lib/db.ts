@@ -1,56 +1,135 @@
-import Database from "better-sqlite3";
-import fs from "fs";
-import path from "path";
 import type { RouteRow, TripReportRow } from "./types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "routes.db");
+type Stmt = {
+  bind(...values: unknown[]): BoundStmt;
+  all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
+  first<T = Record<string, unknown>>(): Promise<T | null>;
+  run(): Promise<unknown>;
+};
 
-let dbInstance: Database.Database | null = null;
+type BoundStmt = {
+  all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
+  first<T = Record<string, unknown>>(): Promise<T | null>;
+  run(): Promise<unknown>;
+};
 
-export function getDb(): Database.Database {
-  if (dbInstance) return dbInstance;
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const db = new Database(DB_PATH);
+/** D1 or local better-sqlite3 adapter. */
+export interface AppDatabase {
+  prepare(query: string): Stmt;
+  exec(query: string): Promise<unknown>;
+}
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS routes (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  region TEXT NOT NULL,
+  wta_url TEXT NOT NULL,
+  total_miles REAL NOT NULL,
+  elevation_gain_ft INTEGER,
+  high_point_ft INTEGER,
+  latitude REAL NOT NULL,
+  longitude REAL NOT NULL,
+  features_json TEXT NOT NULL DEFAULT '[]',
+  permit_required INTEGER NOT NULL DEFAULT 0,
+  permit_notes TEXT,
+  suggested_nights INTEGER NOT NULL,
+  drive_minutes_from_seattle REAL,
+  drive_miles_from_seattle REAL,
+  summary TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS trip_reports (
+  id TEXT PRIMARY KEY,
+  route_id TEXT NOT NULL,
+  report_date TEXT NOT NULL,
+  title TEXT NOT NULL,
+  snippet TEXT NOT NULL,
+  issues TEXT,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  url TEXT NOT NULL,
+  FOREIGN KEY (route_id) REFERENCES routes(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trip_reports_route ON trip_reports(route_id);
+CREATE INDEX IF NOT EXISTS idx_trip_reports_date ON trip_reports(report_date);
+
+CREATE TABLE IF NOT EXISTS weather_cache (
+  cache_key TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+`;
+
+let sqliteAdapter: AppDatabase | null = null;
+
+function wrapBetterSqlite(db: {
+  prepare: (sql: string) => {
+    all: (...params: unknown[]) => unknown[];
+    get: (...params: unknown[]) => unknown;
+    run: (...params: unknown[]) => unknown;
+  };
+  exec: (sql: string) => unknown;
+}): AppDatabase {
+  return {
+    prepare(query: string) {
+      const stmt = db.prepare(query);
+      const makeBound = (values: unknown[]): BoundStmt => ({
+        async all<T = Record<string, unknown>>() {
+          return { results: stmt.all(...values) as T[] };
+        },
+        async first<T = Record<string, unknown>>() {
+          return (stmt.get(...values) as T) ?? null;
+        },
+        async run() {
+          return stmt.run(...values);
+        },
+      });
+      return {
+        bind(...values: unknown[]) {
+          return makeBound(values);
+        },
+        all: <T = Record<string, unknown>>() => makeBound([]).all<T>(),
+        first: <T = Record<string, unknown>>() => makeBound([]).first<T>(),
+        run: () => makeBound([]).run(),
+      };
+    },
+    async exec(query: string) {
+      db.exec(query);
+    },
+  };
+}
+
+async function getLocalSqlite(): Promise<AppDatabase> {
+  if (sqliteAdapter) return sqliteAdapter;
+  const fs = await import("fs");
+  const path = await import("path");
+  const { default: Database } = await import("better-sqlite3");
+  const dataDir = path.join(process.cwd(), "data");
+  fs.mkdirSync(dataDir, { recursive: true });
+  const db = new Database(path.join(dataDir, "routes.db"));
   db.pragma("journal_mode = WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS routes (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      region TEXT NOT NULL,
-      wta_url TEXT NOT NULL,
-      total_miles REAL NOT NULL,
-      elevation_gain_ft INTEGER,
-      high_point_ft INTEGER,
-      latitude REAL NOT NULL,
-      longitude REAL NOT NULL,
-      features_json TEXT NOT NULL DEFAULT '[]',
-      permit_required INTEGER NOT NULL DEFAULT 0,
-      permit_notes TEXT,
-      suggested_nights INTEGER NOT NULL,
-      drive_minutes_from_seattle REAL,
-      drive_miles_from_seattle REAL,
-      summary TEXT,
-      updated_at TEXT NOT NULL
-    );
+  db.exec(SCHEMA);
+  sqliteAdapter = wrapBetterSqlite(db as never);
+  return sqliteAdapter;
+}
 
-    CREATE TABLE IF NOT EXISTS trip_reports (
-      id TEXT PRIMARY KEY,
-      route_id TEXT NOT NULL,
-      report_date TEXT NOT NULL,
-      title TEXT NOT NULL,
-      snippet TEXT NOT NULL,
-      issues TEXT,
-      tags_json TEXT NOT NULL DEFAULT '[]',
-      url TEXT NOT NULL,
-      FOREIGN KEY (route_id) REFERENCES routes(id)
-    );
+async function getD1(): Promise<AppDatabase | null> {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const ctx = await getCloudflareContext({ async: true });
+    const db = (ctx.env as { DB?: AppDatabase }).DB;
+    return db ?? null;
+  } catch {
+    return null;
+  }
+}
 
-    CREATE INDEX IF NOT EXISTS idx_trip_reports_route ON trip_reports(route_id);
-    CREATE INDEX IF NOT EXISTS idx_trip_reports_date ON trip_reports(report_date);
-  `);
-  dbInstance = db;
-  return db;
+export async function getDb(): Promise<AppDatabase> {
+  const d1 = await getD1();
+  if (d1) return d1;
+  return getLocalSqlite();
 }
 
 function mapRoute(row: Record<string, unknown>): RouteRow {
@@ -95,20 +174,16 @@ function mapReport(row: Record<string, unknown>): TripReportRow {
   };
 }
 
-export function upsertRoute(route: RouteRow): void {
-  const db = getDb();
-  db.prepare(
-    `INSERT INTO routes (
+export async function upsertRoute(route: RouteRow): Promise<void> {
+  const db = await getDb();
+  await db
+    .prepare(
+      `INSERT INTO routes (
       id, name, region, wta_url, total_miles, elevation_gain_ft, high_point_ft,
       latitude, longitude, features_json, permit_required, permit_notes,
       suggested_nights, drive_minutes_from_seattle, drive_miles_from_seattle,
       summary, updated_at
-    ) VALUES (
-      @id, @name, @region, @wtaUrl, @totalMiles, @elevationGainFt, @highPointFt,
-      @latitude, @longitude, @featuresJson, @permitRequired, @permitNotes,
-      @suggestedNights, @driveMinutesFromSeattle, @driveMilesFromSeattle,
-      @summary, @updatedAt
-    )
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name=excluded.name,
       region=excluded.region,
@@ -126,63 +201,101 @@ export function upsertRoute(route: RouteRow): void {
       drive_miles_from_seattle=COALESCE(excluded.drive_miles_from_seattle, routes.drive_miles_from_seattle),
       summary=excluded.summary,
       updated_at=excluded.updated_at`
-  ).run(route);
+    )
+    .bind(
+      route.id,
+      route.name,
+      route.region,
+      route.wtaUrl,
+      route.totalMiles,
+      route.elevationGainFt,
+      route.highPointFt,
+      route.latitude,
+      route.longitude,
+      route.featuresJson,
+      route.permitRequired,
+      route.permitNotes,
+      route.suggestedNights,
+      route.driveMinutesFromSeattle,
+      route.driveMilesFromSeattle,
+      route.summary,
+      route.updatedAt
+    )
+    .run();
 }
 
-export function updateRouteDrive(
+export async function updateRouteDrive(
   id: string,
   driveMinutes: number,
   driveMiles: number
-): void {
-  getDb()
+): Promise<void> {
+  const db = await getDb();
+  await db
     .prepare(
       `UPDATE routes SET drive_minutes_from_seattle = ?, drive_miles_from_seattle = ? WHERE id = ?`
     )
-    .run(driveMinutes, driveMiles, id);
+    .bind(driveMinutes, driveMiles, id)
+    .run();
 }
 
-export function replaceTripReports(
+export async function replaceTripReports(
   routeId: string,
   reports: TripReportRow[]
-): void {
-  const db = getDb();
-  const del = db.prepare(`DELETE FROM trip_reports WHERE route_id = ?`);
-  const ins = db.prepare(
-    `INSERT OR REPLACE INTO trip_reports (
+): Promise<void> {
+  const db = await getDb();
+  await db
+    .prepare(`DELETE FROM trip_reports WHERE route_id = ?`)
+    .bind(routeId)
+    .run();
+  for (const report of reports) {
+    await db
+      .prepare(
+        `INSERT OR REPLACE INTO trip_reports (
       id, route_id, report_date, title, snippet, issues, tags_json, url
-    ) VALUES (
-      @id, @routeId, @reportDate, @title, @snippet, @issues, @tagsJson, @url
-    )`
-  );
-  const tx = db.transaction(() => {
-    del.run(routeId);
-    for (const report of reports) ins.run(report);
-  });
-  tx();
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        report.id,
+        report.routeId,
+        report.reportDate,
+        report.title,
+        report.snippet,
+        report.issues,
+        report.tagsJson,
+        report.url
+      )
+      .run();
+  }
 }
 
-export function listRoutes(): RouteRow[] {
-  const rows = getDb().prepare(`SELECT * FROM routes ORDER BY name`).all();
-  return rows.map((r) => mapRoute(r as Record<string, unknown>));
+export async function listRoutes(): Promise<RouteRow[]> {
+  const db = await getDb();
+  const { results } = await db
+    .prepare(`SELECT * FROM routes ORDER BY name`)
+    .all<Record<string, unknown>>();
+  return results.map(mapRoute);
 }
 
-export function getTripReportsForRoute(
+export async function getTripReportsForRoute(
   routeId: string,
   sinceDate: string
-): TripReportRow[] {
-  const rows = getDb()
+): Promise<TripReportRow[]> {
+  const db = await getDb();
+  const { results } = await db
     .prepare(
       `SELECT * FROM trip_reports
        WHERE route_id = ? AND report_date >= ?
        ORDER BY report_date DESC`
     )
-    .all(routeId, sinceDate);
-  return rows.map((r) => mapReport(r as Record<string, unknown>));
+    .bind(routeId, sinceDate)
+    .all<Record<string, unknown>>();
+  return results.map(mapReport);
 }
 
-export function routeCount(): number {
-  const row = getDb().prepare(`SELECT COUNT(*) AS c FROM routes`).get() as {
-    c: number;
-  };
-  return row.c;
+export async function routeCount(): Promise<number> {
+  const db = await getDb();
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS c FROM routes`)
+    .first<{ c: number }>();
+  return Number(row?.c ?? 0);
 }
